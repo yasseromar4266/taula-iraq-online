@@ -579,7 +579,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-CpYdouq0G6d7DjD/ZGtAOoITPKVcpgBAyTcR+Dk/pdA=";
+var SCRIPT_HASH = "sha256-sXxTs45oW0GqRiYDJ0cb9hI8nWdOmpnaQASKJ8ijd/A=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -869,7 +869,7 @@ function securityHeaders(req, res) {
   ].join("; "));
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   if (req.headers["x-forwarded-proto"] === "https") res.setHeader("Strict-Transport-Security", "max-age=31536000");
 }
