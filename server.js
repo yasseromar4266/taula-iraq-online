@@ -1,6 +1,6 @@
 // server/index.js
 import http from "node:http";
-import { randomInt, randomUUID } from "node:crypto";
+import { randomInt, randomUUID, createHash as createHash2 } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -321,7 +321,7 @@ function createMusicSearch({
   const cache = /* @__PURE__ */ new Map();
   const perIp = /* @__PURE__ */ new Map();
   let day = pacificDay(now()), used = 0;
-  function json(res, status, body) {
+  function json2(res, status, body) {
     res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
     res.end(JSON.stringify(body));
   }
@@ -354,26 +354,26 @@ function createMusicSearch({
     return out;
   }
   return async function handle2(req, res, ip) {
-    if (!apiKey) return json(res, 503, { error: "noKey" });
+    if (!apiKey) return json2(res, 503, { error: "noKey" });
     const q = normalizeQuery(new URL(req.url, "http://x").searchParams.get("q"));
-    if (q.length < 2) return json(res, 400, { error: "short" });
+    if (q.length < 2) return json2(res, 400, { error: "short" });
     const key = q.toLowerCase();
     const hit = cache.get(key);
-    if (hit && now() - hit.at < CACHE_TTL) return json(res, 200, { items: hit.items, cached: true });
-    if (!allowIp(ip)) return json(res, 429, { error: "rate" });
+    if (hit && now() - hit.at < CACHE_TTL) return json2(res, 200, { items: hit.items, cached: true });
+    if (!allowIp(ip)) return json2(res, 429, { error: "rate" });
     const today = pacificDay(now());
     if (today !== day) {
       day = today;
       used = 0;
     }
-    if (used >= dailyLimit) return json(res, 429, { error: "quota" });
+    if (used >= dailyLimit) return json2(res, 429, { error: "quota" });
     used += 1;
     const url = `${SEARCH_URL}?part=snippet&type=video&videoEmbeddable=true&maxResults=8&safeSearch=moderate&q=${encodeURIComponent(q)}&key=${encodeURIComponent(apiKey)}`;
     let r;
     try {
       r = await fetchImpl(url, { signal: AbortSignal.timeout(8e3) });
     } catch {
-      return json(res, 502, { error: "upstream" });
+      return json2(res, 502, { error: "upstream" });
     }
     if (!r.ok) {
       let reason = "";
@@ -383,20 +383,195 @@ function createMusicSearch({
       }
       if (r.status === 403 && /quota/i.test(reason)) {
         used = dailyLimit;
-        return json(res, 429, { error: "quota" });
+        return json2(res, 429, { error: "quota" });
       }
-      return json(res, 502, { error: "upstream" });
+      return json2(res, 502, { error: "upstream" });
     }
     let data;
     try {
       data = await r.json();
     } catch {
-      return json(res, 502, { error: "upstream" });
+      return json2(res, 502, { error: "upstream" });
     }
     const items = clean(data.items);
     cache.set(key, { at: now(), items });
     if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
-    return json(res, 200, { items });
+    return json2(res, 200, { items });
+  };
+}
+
+// server/stats.js
+import { timingSafeEqual, createHash } from "node:crypto";
+var DAY_TTL = 400 * 24 * 3600;
+var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "music_search"];
+var dayOf = (t = Date.now()) => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
+var daysBack = (n) => Array.from({ length: n }, (_, i) => dayOf(Date.now() - i * 864e5)).reverse();
+function memoryStore() {
+  const nums = /* @__PURE__ */ new Map(), sets = /* @__PURE__ */ new Map();
+  return {
+    kind: "memory",
+    async run(cmds) {
+      return cmds.map(([op, key, val]) => {
+        if (op === "INCR") {
+          nums.set(key, (nums.get(key) || 0) + 1);
+          return nums.get(key);
+        }
+        if (op === "GET") return nums.get(key) ?? null;
+        if (op === "PFADD") {
+          if (!sets.has(key)) sets.set(key, /* @__PURE__ */ new Set());
+          sets.get(key).add(val);
+          return 1;
+        }
+        if (op === "PFCOUNT") return sets.get(key)?.size || 0;
+        return null;
+      });
+    }
+  };
+}
+function redisStore(url, token, fetchImpl = globalThis.fetch) {
+  return {
+    kind: "redis",
+    async run(cmds) {
+      const r = await fetchImpl(`${url.replace(/\/$/, "")}/pipeline`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(cmds),
+        signal: AbortSignal.timeout(5e3)
+      });
+      if (!r.ok) throw new Error("redis " + r.status);
+      const out = await r.json();
+      return out.map((x) => x && "result" in x ? x.result : null);
+    }
+  };
+}
+function json(res, status, body) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify(body));
+}
+function readBody(req, limit = 1024) {
+  return new Promise((resolve) => {
+    let size = 0, data = "";
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        req.destroy();
+        resolve(null);
+      } else data += c;
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(data || "{}"));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+function sameSecret(a, b) {
+  const ha = createHash("sha256").update(String(a)).digest();
+  const hb = createHash("sha256").update(String(b)).digest();
+  return timingSafeEqual(ha, hb);
+}
+function limiter(max, windowMs) {
+  const hits = /* @__PURE__ */ new Map();
+  return (key) => {
+    const now = Date.now();
+    const list = (hits.get(key) || []).filter((t) => now - t < windowMs);
+    if (list.length >= max) {
+      hits.set(key, list);
+      return false;
+    }
+    list.push(now);
+    hits.set(key, list);
+    if (hits.size > 1e4) hits.clear();
+    return true;
+  };
+}
+function createStats({
+  env = process.env,
+  live = () => ({ online: 0, matches: 0 }),
+  fetchImpl
+} = {}) {
+  const store = env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN ? redisStore(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN, fetchImpl) : memoryStore();
+  const adminKey = env.ADMIN_KEY || "";
+  const startedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const hitLimit = limiter(30, 6e4);
+  const loginLimit = limiter(10, 15 * 6e4);
+  async function hit(req, res, ip) {
+    if (!hitLimit(ip)) return json(res, 429, { error: "rate" });
+    const body = await readBody(req);
+    const vid = body?.vid;
+    if (typeof vid !== "string" || !/^[a-z0-9]{12,40}$/.test(vid)) return json(res, 400, { error: "bad" });
+    const d = dayOf();
+    try {
+      await store.run([
+        ["INCR", "visits:total"],
+        ["INCR", `visits:${d}`],
+        ["EXPIRE", `visits:${d}`, DAY_TTL],
+        ["PFADD", "uv:all", vid],
+        ["PFADD", `uv:${d}`, vid],
+        ["EXPIRE", `uv:${d}`, DAY_TTL]
+      ]);
+    } catch {
+    }
+    return json(res, 200, { ok: true });
+  }
+  async function event(req, res, ip) {
+    if (!hitLimit(ip)) return json(res, 429, { error: "rate" });
+    const body = await readBody(req);
+    if (!EVENT_TYPES.includes(body?.type)) return json(res, 400, { error: "bad" });
+    const d = dayOf();
+    try {
+      await store.run([["INCR", `ev:${body.type}`], ["INCR", `ev:${body.type}:${d}`], ["EXPIRE", `ev:${body.type}:${d}`, DAY_TTL]]);
+    } catch {
+    }
+    return json(res, 200, { ok: true });
+  }
+  async function admin(req, res, ip) {
+    if (!adminKey) return json(res, 503, { error: "noAdminKey" });
+    if (!loginLimit(ip)) return json(res, 429, { error: "rate" });
+    const given = req.headers["x-admin-key"] || "";
+    if (!given || !sameSecret(given, adminKey)) return json(res, 401, { error: "wrongKey" });
+    const days = daysBack(14);
+    const cmds = [
+      ["GET", "visits:total"],
+      ["PFCOUNT", "uv:all"],
+      ...days.flatMap((d) => [["GET", `visits:${d}`], ["PFCOUNT", `uv:${d}`]]),
+      ...EVENT_TYPES.flatMap((t) => [["GET", `ev:${t}`], ["GET", `ev:${t}:${days[days.length - 1]}`]])
+    ];
+    let r;
+    try {
+      r = await store.run(cmds);
+    } catch {
+      return json(res, 502, { error: "storage" });
+    }
+    const n = (v) => Number(v) || 0;
+    let i = 0;
+    const total = { visits: n(r[i++]), visitors: n(r[i++]) };
+    const daily = days.map((d) => ({ day: d, visits: n(r[i++]), visitors: n(r[i++]) }));
+    const events = {};
+    for (const t of EVENT_TYPES) events[t] = { total: n(r[i++]), today: n(r[i++]) };
+    return json(res, 200, { storage: store.kind, since: startedAt, live: live(), total, today: daily[daily.length - 1], daily, events });
+  }
+  return {
+    storageKind: store.kind,
+    async route(req, res, ip) {
+      const path = (req.url || "").split("?")[0];
+      if (req.method === "POST" && path === "/api/hit") {
+        await hit(req, res, ip);
+        return true;
+      }
+      if (req.method === "POST" && path === "/api/event") {
+        await event(req, res, ip);
+        return true;
+      }
+      if (req.method === "GET" && path === "/api/admin/stats") {
+        await admin(req, res, ip);
+        return true;
+      }
+      return false;
+    }
   };
 }
 
@@ -404,7 +579,11 @@ function createMusicSearch({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-TTret/3msh1jac9A0936DkH5j7YInwJNME4/UKR0R9c=";
+var SCRIPT_HASH = "sha256-CpYdouq0G6d7DjD/ZGtAOoITPKVcpgBAyTcR+Dk/pdA=";
+var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
+var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
+var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
+var pageCache = null;
 var PORT = Number(process.env.PORT || 8787);
 var GRACE_MS = Number(process.env.GRACE_MS || 6e4);
 var ROOM_IDLE_MS = 30 * 6e4;
@@ -677,12 +856,12 @@ function securityHeaders(req, res) {
   const host = String(req.headers.host || "").replace(/[^A-Za-z0-9.:\-\[\]]/g, "");
   res.setHeader("Content-Security-Policy", [
     "default-src 'self'",
-    `script-src 'self'${SCRIPT_HASH ? ` '${SCRIPT_HASH}'` : ""} https://www.youtube.com https://s.ytimg.com`,
+    `script-src 'self'${SCRIPT_HASH ? ` '${SCRIPT_HASH}'` : ""}${GA_HASH ? ` '${GA_HASH}' https://www.googletagmanager.com` : ""} https://www.youtube.com https://s.ytimg.com`,
     "frame-src https://www.youtube.com https://www.youtube-nocookie.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: https://i.ytimg.com",
-    `connect-src 'self' wss://${host} ws://${host}`,
+    "img-src 'self' data: https://i.ytimg.com" + (GA_ID ? " https://*.google-analytics.com https://*.googletagmanager.com" : ""),
+    `connect-src 'self' wss://${host} ws://${host}` + (GA_ID ? " https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com" : ""),
     "frame-ancestors 'none'",
     "base-uri 'none'",
     "form-action 'self'",
@@ -695,10 +874,19 @@ function securityHeaders(req, res) {
   if (req.headers["x-forwarded-proto"] === "https") res.setHeader("Strict-Transport-Security", "max-age=31536000");
 }
 var musicSearch = createMusicSearch();
+var countClients = () => 0;
+var stats = createStats({
+  live: () => ({
+    online: countClients(),
+    matches: [...rooms.values()].filter((r) => r.match && r.match.matchWinner === null).length,
+    waiting: queue.length
+  })
+});
 var ipOf = (req) => String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
 async function serveStatic(req, res) {
   securityHeaders(req, res);
   if (req.method === "GET" && (req.url || "").startsWith("/api/music/search")) return musicSearch(req, res, ipOf(req));
+  if ((req.url || "").startsWith("/api/") && await stats.route(req, res, ipOf(req))) return;
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405);
     return res.end();
@@ -708,7 +896,13 @@ async function serveStatic(req, res) {
     return res.end("ok");
   }
   if (SINGLE_HTML) {
-    const body = await readFile(join(__dirname, SINGLE_HTML));
+    if (!pageCache) {
+      let html = await readFile(join(__dirname, SINGLE_HTML), "utf8");
+      if (GA_ID) html = html.replace("</head>", `<script async src="https://www.googletagmanager.com/gtag/js?id=${GA_ID}"></script><script>${GA_INLINE}</script>
+</head>`);
+      pageCache = Buffer.from(html);
+    }
+    const body = pageCache;
     res.writeHead(200, { "content-type": MIME[".html"], "cache-control": "no-cache" });
     return res.end(req.method === "HEAD" ? void 0 : body);
   }
@@ -778,6 +972,7 @@ function startServer(port = PORT) {
       done(true);
     }
   });
+  countClients = () => wss.clients.size;
   wss.on("connection", (ws, req) => {
     const ip = clientIp(req);
     perIp.set(ip, (perIp.get(ip) || 0) + 1);
