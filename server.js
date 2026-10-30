@@ -880,6 +880,469 @@ function chooseMove(m, p, level = "medium", rand2 = Math.random) {
   return best.token;
 }
 
+// src/games/kunkan/engine.js
+var OPEN_MIN = 51;
+var NOT_OPENED = 100;
+var JOKER_IN_HAND = 25;
+var DECK = 106;
+var isJoker = (id) => id >= 104;
+var suitOf = (id) => isJoker(id) ? -1 : Math.floor(id % 52 / 13);
+var rankOf = (id) => isJoker(id) ? 0 : id % 52 % 13 + 1;
+var rankValue = (r) => r === 1 ? 1 : r === 14 ? 10 : Math.min(r, 10);
+var handValue = (id) => isJoker(id) ? JOKER_IN_HAND : rankOf(id) === 1 ? 10 : Math.min(rankOf(id), 10);
+function analyse(cards) {
+  if (!Array.isArray(cards) || cards.length < 3) return null;
+  if (new Set(cards).size !== cards.length) return null;
+  const nat = cards.filter((c) => !isJoker(c));
+  if (nat.length < 2) return null;
+  return analyseSet(cards, nat) || analyseRun(cards, nat);
+}
+function analyseSet(cards, nat) {
+  if (cards.length > 4) return null;
+  const r = rankOf(nat[0]);
+  if (!nat.every((c) => rankOf(c) === r)) return null;
+  if (new Set(nat.map(suitOf)).size !== nat.length) return null;
+  const v = r === 1 ? 10 : rankValue(r);
+  return { type: "set", rank: r, value: v * cards.length };
+}
+function analyseRun(cards, nat) {
+  if (cards.length > 14) return null;
+  const s = suitOf(nat[0]);
+  if (!nat.every((c) => suitOf(c) === s)) return null;
+  const len = cards.length;
+  const aces = nat.filter((c) => rankOf(c) === 1);
+  const others = nat.filter((c) => rankOf(c) !== 1).map(rankOf);
+  if (new Set(others).size !== others.length) return null;
+  const choices = aces.length === 0 ? [[]] : aces.length === 1 ? [[1], [14]] : aces.length === 2 ? [[1, 14]] : [];
+  let best = null;
+  for (const aceVals of choices) {
+    const vals = [...others, ...aceVals];
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo + 1 > len) continue;
+    for (let start = Math.min(lo, 15 - len); start >= Math.max(1, hi - len + 1); start--) {
+      let value = 0;
+      for (let k = start; k < start + len; k++) value += rankValue(k);
+      if (!best || value > best.value) best = { type: "run", suit: s, start, value };
+      break;
+    }
+  }
+  if (!best) return null;
+  const slots = new Array(len).fill(null);
+  const jokers = cards.filter(isJoker);
+  const acePlaced = [];
+  for (const c of nat) {
+    let r = rankOf(c);
+    if (r === 1) {
+      r = best.start === 1 && !acePlaced.includes(1) ? 1 : 14;
+      acePlaced.push(r);
+    }
+    slots[r - best.start] = c;
+  }
+  for (let i = 0; i < len; i++) if (slots[i] === null) slots[i] = jokers.pop();
+  best.ordered = slots;
+  best.layout = slots.map((_, i) => best.start + i);
+  return best;
+}
+function shuffle2(arr, rand2) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = rand2(i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+var defaultRand = (n) => Math.floor(Math.random() * n);
+function nextActive2(m, seat) {
+  const n = m.active.length;
+  for (let k = 1; k <= n; k++) {
+    const s = (seat + k) % n;
+    if (m.active[s]) return s;
+  }
+  return seat;
+}
+function createMatch5({ active = [true, true, false, false, false], rand: rand2 = defaultRand, dealer = null } = {}) {
+  const seats = active.map((a, i) => a ? i : -1).filter((i) => i >= 0);
+  const m = {
+    active: active.slice(),
+    scores: active.map((a) => a ? 0 : null),
+    roundNo: 0,
+    dealer: dealer ?? seats[rand2(seats.length)],
+    phase: "draw",
+    matchWinner: null,
+    history: [],
+    round: null
+  };
+  newRound2(m, rand2);
+  return m;
+}
+function newRound2(m, rand2 = defaultRand) {
+  const deck = shuffle2(Array.from({ length: DECK }, (_, i) => i), rand2);
+  const hands = m.active.map(() => null);
+  let s = m.dealer;
+  for (let k = 0; k < m.active.filter(Boolean).length; k++) {
+    hands[s] = deck.splice(0, s === m.dealer ? 15 : 14);
+    s = nextActive2(m, s);
+  }
+  m.roundNo += 1;
+  m.round = {
+    hands,
+    stock: deck,
+    discard: [],
+    melds: [],
+    nextMeldId: 1,
+    opened: m.active.map(() => false),
+    acted: false,
+    turn: m.dealer,
+    took: null,
+    mustOpen: false,
+    reshuffles: 0,
+    result: null,
+    last: null
+  };
+  m.phase = "play";
+  return m;
+}
+var err = (e) => ({ ok: false, error: e });
+function draw(m, seat, from = "stock", rand2 = defaultRand) {
+  const r = m.round;
+  if (m.phase !== "draw" || r.turn !== seat) return err("notYourTurn");
+  if (from === "discard") {
+    if (!r.discard.length) return err("emptyDiscard");
+    const c2 = r.discard.pop();
+    r.hands[seat].push(c2);
+    r.took = c2;
+    r.mustOpen = !r.opened[seat];
+    m.phase = "play";
+    r.last = { kind: "take", seat, card: c2 };
+    return { ok: true, card: c2 };
+  }
+  if (!r.stock.length) {
+    if (r.discard.length <= 1) {
+      endRound2(m, null);
+      return { ok: true, card: null, exhausted: true };
+    }
+    const top = r.discard.pop();
+    r.stock = shuffle2(r.discard, rand2);
+    r.discard = [top];
+    r.reshuffles += 1;
+  }
+  const c = r.stock.pop();
+  r.hands[seat].push(c);
+  r.took = null;
+  r.mustOpen = false;
+  m.phase = "play";
+  r.last = { kind: "draw", seat };
+  return { ok: true, card: c };
+}
+function undoTake(m, seat) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat || r.took === null || r.acted) return err("cannotUndo");
+  const i = r.hands[seat].indexOf(r.took);
+  if (i < 0) return err("cannotUndo");
+  r.hands[seat].splice(i, 1);
+  r.discard.push(r.took);
+  r.took = null;
+  r.mustOpen = false;
+  m.phase = "draw";
+  r.last = { kind: "untake", seat };
+  return { ok: true };
+}
+function ownsAll(hand, cards) {
+  const h = hand.slice();
+  for (const c of cards) {
+    const i = h.indexOf(c);
+    if (i < 0) return false;
+    h.splice(i, 1);
+  }
+  return true;
+}
+function meld(m, seat, groups) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat) return err("notYourTurn");
+  if (!Array.isArray(groups) || !groups.length) return err("badMeld");
+  const all = groups.flat();
+  if (!all.every(Number.isInteger) || new Set(all).size !== all.length || !ownsAll(r.hands[seat], all)) return err("badMeld");
+  const infos = groups.map(analyse);
+  if (infos.some((x) => !x)) return err("badMeld");
+  const total = infos.reduce((t, x) => t + x.value, 0);
+  if (!r.opened[seat] && total < OPEN_MIN) return err("needOpen");
+  r.hands[seat] = r.hands[seat].filter((c) => !all.includes(c));
+  const ids = [];
+  groups.forEach((g, i) => {
+    const info = infos[i];
+    const cards = info.type === "run" ? info.ordered : g.slice();
+    const id = r.nextMeldId++;
+    r.melds.push({ id, owner: seat, cards, type: info.type });
+    ids.push(id);
+  });
+  r.opened[seat] = true;
+  r.acted = true;
+  r.mustOpen = false;
+  r.last = { kind: "meld", seat, melds: ids };
+  if (!r.hands[seat].length) endRound2(m, seat);
+  return { ok: true, melds: ids, total };
+}
+function layoff(m, seat, card, meldId) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat) return err("notYourTurn");
+  if (!r.opened[seat]) return err("needOpenFirst");
+  const md = r.melds.find((x) => x.id === meldId);
+  if (!md || !ownsAll(r.hands[seat], [card])) return err("badLayoff");
+  const next = tryExtend(md, card);
+  if (!next) return err("badLayoff");
+  md.cards = next;
+  r.hands[seat].splice(r.hands[seat].indexOf(card), 1);
+  r.acted = true;
+  r.last = { kind: "layoff", seat, card, meld: meldId };
+  if (!r.hands[seat].length) endRound2(m, seat);
+  return { ok: true };
+}
+function tryExtend(md, card) {
+  const info = analyse([...md.cards, card]);
+  if (!info || info.type !== md.type) return null;
+  return info.type === "run" ? info.ordered : [...md.cards, card];
+}
+function discard(m, seat, card) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat) return err("notYourTurn");
+  if (!ownsAll(r.hands[seat], [card])) return err("badCard");
+  if (r.mustOpen && !r.opened[seat]) return err("mustOpen");
+  if (r.took !== null && card === r.took) return err("sameCard");
+  r.hands[seat].splice(r.hands[seat].indexOf(card), 1);
+  r.discard.push(card);
+  r.last = { kind: "discard", seat, card };
+  if (!r.hands[seat].length) {
+    endRound2(m, seat);
+    return { ok: true, out: true };
+  }
+  r.turn = nextActive2(m, seat);
+  r.took = null;
+  r.mustOpen = false;
+  r.acted = false;
+  m.phase = "draw";
+  return { ok: true };
+}
+function endRound2(m, winner) {
+  const r = m.round;
+  const points = m.active.map((a, s) => {
+    if (!a) return null;
+    if (winner === null) return 0;
+    if (s === winner) return 0;
+    if (!r.opened[s]) return NOT_OPENED;
+    return r.hands[s].reduce((t, c) => t + handValue(c), 0);
+  });
+  points.forEach((p, s) => {
+    if (p !== null) m.scores[s] += p;
+  });
+  r.result = { winner, points, hands: r.hands.map((h) => h ? h.slice() : null), totals: m.scores.slice() };
+  m.history.push(points);
+  m.phase = "roundover";
+  if (winner !== null) m.dealer = winner;
+}
+function nextRound2(m, rand2 = defaultRand) {
+  if (m.phase !== "roundover") return err("notOver");
+  newRound2(m, rand2);
+  return { ok: true };
+}
+function forfeit5(m, seat) {
+  if (m.matchWinner !== null) return err("over");
+  let best = null;
+  m.active.forEach((a, s) => {
+    if (a && s !== seat && (best === null || m.scores[s] < m.scores[best])) best = s;
+  });
+  m.matchWinner = best;
+  m.forfeitBy = seat;
+  m.phase = "matchover";
+  return { ok: true };
+}
+function viewFor2(m, seat) {
+  const r = m.round;
+  const showAll = m.phase === "roundover" || m.phase === "matchover";
+  return {
+    ...m,
+    round: {
+      ...r,
+      hands: r.hands.map((h, s) => h === null ? null : s === seat || showAll ? h.slice() : h.length),
+      stock: r.stock.length,
+      discard: r.discard.slice(-1),
+      discardCount: r.discard.length
+    }
+  };
+}
+
+// src/games/kunkan/ai.js
+function candidates(hand) {
+  const nat = hand.filter((c) => !isJoker(c));
+  const jokers = hand.filter(isJoker);
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (cards) => {
+    const key = cards.slice().sort((a, b) => a - b).join(",");
+    if (seen.has(key)) return;
+    if (analyse(cards)) {
+      seen.add(key);
+      out.push(cards);
+    }
+  };
+  const byRank = /* @__PURE__ */ new Map();
+  for (const c of nat) {
+    const r = rankOf(c);
+    if (!byRank.has(r)) byRank.set(r, /* @__PURE__ */ new Map());
+    const m = byRank.get(r);
+    if (!m.has(suitOf(c))) m.set(suitOf(c), c);
+  }
+  for (const m of byRank.values()) {
+    const cs = [...m.values()];
+    const subsets = (k) => {
+      const res = [];
+      const rec = (i, acc) => {
+        if (acc.length === k) {
+          res.push(acc.slice());
+          return;
+        }
+        for (let j = i; j < cs.length; j++) {
+          acc.push(cs[j]);
+          rec(j + 1, acc);
+          acc.pop();
+        }
+      };
+      rec(0, []);
+      return res;
+    };
+    for (const k of [3, 4]) for (const s of subsets(k)) add(s);
+    if (jokers.length) for (const s of subsets(2)) add([...s, jokers[0]]);
+    if (jokers.length) for (const s of subsets(3)) add([...s, jokers[0]]);
+  }
+  for (let s = 0; s < 4; s++) {
+    const byR = /* @__PURE__ */ new Map();
+    for (const c of nat) if (suitOf(c) === s) {
+      const r = rankOf(c);
+      if (!byR.has(r)) byR.set(r, c);
+    }
+    const at = (r) => byR.get(r === 14 ? 1 : r);
+    for (let start = 1; start <= 12; start++) {
+      for (let end = start + 2; end <= 14; end++) {
+        const cards = [];
+        let gaps = 0;
+        let gapOk = true;
+        for (let r = start; r <= end; r++) {
+          const c = at(r);
+          if (c === void 0 || r === 14 && start === 1) {
+            gaps++;
+            if (gaps > Math.min(1, jokers.length)) {
+              gapOk = false;
+              break;
+            }
+            cards.push(jokers[0]);
+          } else cards.push(c);
+        }
+        if (!gapOk) break;
+        add(cards);
+      }
+    }
+  }
+  return out;
+}
+function bestMelds(hand, { maxCards = Infinity } = {}) {
+  const cands = candidates(hand).map((cards) => ({ cards, value: analyse(cards).value }));
+  cands.sort((a, b) => b.value - a.value);
+  let best = { groups: [], value: 0, used: 0 };
+  let nodes = 0;
+  const rec = (i, used, groups, value, n) => {
+    if (++nodes > 2e4) return;
+    if (value > best.value) best = { groups: groups.slice(), value, used: n };
+    for (let j = i; j < cands.length; j++) {
+      const c = cands[j];
+      if (n + c.cards.length > maxCards) continue;
+      if (c.cards.some((x) => used.has(x))) continue;
+      c.cards.forEach((x) => used.add(x));
+      groups.push(c.cards);
+      rec(j + 1, used, groups, value + c.value, n + c.cards.length);
+      groups.pop();
+      c.cards.forEach((x) => used.delete(x));
+    }
+  };
+  rec(0, /* @__PURE__ */ new Set(), [], 0, 0);
+  return best;
+}
+function connections(hand, c) {
+  if (isJoker(c)) return 99;
+  const r = rankOf(c), s = suitOf(c);
+  let n = 0;
+  for (const o of hand) {
+    if (o === c || isJoker(o)) continue;
+    const ro = rankOf(o);
+    if (ro === r && suitOf(o) !== s) n += 2;
+    if (suitOf(o) === s) {
+      const d = Math.min(Math.abs(ro - r), Math.abs((ro === 1 ? 14 : ro) - (r === 1 ? 14 : r)));
+      if (d === 1) n += 2;
+      else if (d === 2) n += 1;
+    }
+  }
+  return n;
+}
+function chooseDiscard(m, seat, level, rand2) {
+  const r = m.round;
+  const hand = r.hands[seat];
+  const pool = hand.filter((c) => c !== r.took);
+  const nonJ = pool.filter((c) => !isJoker(c));
+  const list = nonJ.length ? nonJ : pool;
+  if (level === "easy") return list[Math.floor(rand2() * list.length)];
+  const next = nextSeat3(m, seat);
+  let best = null;
+  for (const c of list) {
+    let s = connections(hand, c) * 10 - handValue(c);
+    if (level === "hard" && r.opened[next] && r.melds.some((md) => tryExtend(md, c))) s += 25;
+    s += rand2() * 0.5;
+    if (!best || s < best.s) best = { c, s };
+  }
+  return best.c;
+}
+function nextSeat3(m, seat) {
+  const n = m.active.length;
+  for (let k = 1; k <= n; k++) {
+    const s = (seat + k) % n;
+    if (m.active[s]) return s;
+  }
+  return seat;
+}
+function chooseAction(m, seat, level = "medium", rand2 = Math.random) {
+  const r = m.round;
+  const hand = r.hands[seat];
+  if (m.phase === "draw") {
+    const top = Array.isArray(r.discard) ? r.discard[r.discard.length - 1] : void 0;
+    if (level !== "easy" && top !== void 0) {
+      if (r.opened[seat]) {
+        const before = bestMelds(hand).used;
+        const after2 = bestMelds([...hand, top]);
+        if (after2.used > before && after2.groups.some((g) => g.includes(top))) return { a: "draw", from: "discard" };
+        if (!isJoker(top) && r.melds.some((md) => tryExtend(md, top))) return { a: "draw", from: "discard" };
+      } else {
+        const after2 = bestMelds([...hand, top]);
+        if (after2.value >= OPEN_MIN && after2.groups.some((g) => g.includes(top)) && after2.used < hand.length + 1) return { a: "draw", from: "discard" };
+      }
+    }
+    return { a: "draw", from: "stock" };
+  }
+  if (!r.opened[seat]) {
+    const bm = bestMelds(hand, { maxCards: hand.length - 1 });
+    const bmAll = bestMelds(hand);
+    if (bmAll.used === hand.length && bmAll.value >= OPEN_MIN) return { a: "meld", groups: bmAll.groups };
+    if (bm.value >= OPEN_MIN) return { a: "meld", groups: bm.groups };
+  } else {
+    const all = bestMelds(hand);
+    if (all.used === hand.length && all.groups.length) return { a: "meld", groups: all.groups };
+    const bm = bestMelds(hand, { maxCards: hand.length - 1 });
+    if (bm.groups.length) return { a: "meld", groups: [bm.groups[0]] };
+    for (const c of hand) {
+      if (isJoker(c) && hand.length > 2) continue;
+      const md = r.melds.find((x) => tryExtend(x, c));
+      if (md) return { a: "layoff", card: c, meld: md.id };
+    }
+  }
+  if (r.mustOpen && !r.opened[seat]) return { a: "undoTake" };
+  return { a: "discard", card: chooseDiscard(m, seat, level, rand2) };
+}
+
 // server/games.js
 var serverDie = () => randomInt(1, 7);
 var rand = (n) => randomInt(0, n);
@@ -1011,7 +1474,78 @@ function ludoAct(m, seat, msg) {
   if (!res.ok) return res;
   return { ok: true, anims: [anim] };
 }
+var isCard = (c) => Number.isInteger(c) && c >= 0 && c < DECK;
+function kunkanAct(m, seat, msg) {
+  let res, anim = null;
+  switch (msg.a) {
+    case "draw": {
+      if (msg.from !== "stock" && msg.from !== "discard") return { ok: false, error: "bad" };
+      res = draw(m, seat, msg.from, rand);
+      if (res.ok) anim = { kind: "draw", player: seat, from: msg.from, card: msg.from === "discard" ? res.card : void 0 };
+      break;
+    }
+    case "meld": {
+      const g = msg.groups;
+      if (!Array.isArray(g) || !g.length || g.length > 5 || !g.every((x) => Array.isArray(x) && x.length >= 3 && x.length <= 14 && x.every(isCard))) return { ok: false, error: "badMeld" };
+      res = meld(m, seat, g);
+      if (res.ok) anim = { kind: "meld", player: seat, melds: res.melds };
+      break;
+    }
+    case "layoff": {
+      if (!isCard(msg.card) || !Number.isInteger(msg.meld)) return { ok: false, error: "badLayoff" };
+      res = layoff(m, seat, msg.card, msg.meld);
+      if (res.ok) anim = { kind: "layoff", player: seat, card: msg.card, meld: msg.meld };
+      break;
+    }
+    case "discard": {
+      if (!isCard(msg.card)) return { ok: false, error: "badCard" };
+      res = discard(m, seat, msg.card);
+      if (res.ok) anim = { kind: "discard", player: seat, card: msg.card };
+      break;
+    }
+    case "undoTake": {
+      res = undoTake(m, seat);
+      if (res.ok) anim = { kind: "untake", player: seat };
+      break;
+    }
+    case "nextRound": {
+      res = nextRound2(m, rand);
+      if (res.ok) anim = { kind: "newround" };
+      break;
+    }
+    case "resign": {
+      res = forfeit5(m, seat);
+      if (res.ok) anim = { kind: "forfeit", loser: seat };
+      break;
+    }
+    default:
+      return { ok: false, error: "bad" };
+  }
+  if (!res.ok) return res;
+  const anims = [anim];
+  if (m.phase === "roundover" && anim.kind !== "newround") anims.push({ kind: "roundover" });
+  return { ok: true, anims };
+}
 var GAMES = {
+  // Kunkan: 2 to 5 players; start with whoever joined, or let the computer fill the empty seats.
+  kunkan: {
+    seats: 5,
+    create: (active) => createMatch5({ active: active || [true, true, false, false, false], rand }),
+    view: (m, seat) => viewFor2(m, seat),
+    act: kunkanAct,
+    forfeit: (m, seat) => forfeit5(m, seat),
+    over: (m) => m.matchWinner !== null,
+    bots: true,
+    startPartial: true,
+    turnSeat: (m) => m.phase === "draw" || m.phase === "play" ? m.round.turn : null,
+    botMove: (m, seat) => {
+      const a = chooseAction(m, seat, "medium");
+      if (kunkanAct(structuredClone(m), seat, a).ok) return a;
+      if (m.phase === "draw") return { a: "draw", from: "stock" };
+      if (m.round.mustOpen && !m.round.opened[seat]) return { a: "undoTake" };
+      return { a: "discard", card: m.round.hands[seat].find((c) => c !== m.round.took) ?? m.round.hands[seat][0] };
+    }
+  },
   // 2 to 4 players. The room can start with whoever has joined, or fill empty seats with the computer.
   ludo: {
     seats: 4,
@@ -1170,7 +1704,7 @@ function createMusicSearch({
 // server/stats.js
 import { timingSafeEqual, createHash } from "node:crypto";
 var DAY_TTL = 400 * 24 * 3600;
-var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "match_xo_easy", "match_xo_medium", "match_xo_hard", "match_xo_online", "match_ludo_easy", "match_ludo_medium", "match_ludo_hard", "match_ludo_online", "music_search"];
+var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "match_xo_easy", "match_xo_medium", "match_xo_hard", "match_xo_online", "match_ludo_easy", "match_ludo_medium", "match_ludo_hard", "match_ludo_online", "match_kunkan_easy", "match_kunkan_medium", "match_kunkan_hard", "match_kunkan_online", "music_search"];
 var dayOf = (t = Date.now()) => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
 var daysBack = (n) => Array.from({ length: n }, (_, i) => dayOf(Date.now() - i * 864e5)).reverse();
 function memoryStore() {
@@ -1346,7 +1880,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-ziU3yBRnuSSMX6RogifagScG9c5QzjbEdzW6viINMY8=";
+var SCRIPT_HASH = "sha256-ZsWstnjMuiP87RxtBzC1sR3lQsD7P/972u9qTxsdxgA=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -1457,7 +1991,7 @@ function closeRoom(room) {
   clearTimeout(room.botTimer);
   rooms.delete(room.code);
 }
-function leaveRoom(token, { forfeit: forfeit5 = true } = {}) {
+function leaveRoom(token, { forfeit: forfeit6 = true } = {}) {
   const p = players.get(token);
   if (!p || !p.roomCode) return;
   const room = rooms.get(p.roomCode);
@@ -1466,7 +2000,7 @@ function leaveRoom(token, { forfeit: forfeit5 = true } = {}) {
   if (!room) return;
   const seat = room.seats.indexOf(token);
   const g = GAMES[room.game];
-  if (room.match && room.match.matchWinner === null && forfeit5 && seat >= 0) {
+  if (room.match && room.match.matchWinner === null && forfeit6 && seat >= 0) {
     if (g.bots && room.seats.some((t, i) => i !== seat && isHuman(t))) {
       room.seats[seat] = BOT;
       broadcastState(room, { kind: "botTakeover", player: seat });
@@ -1785,8 +2319,8 @@ function startServer(port = PORT) {
       if (!msg || typeof msg !== "object" || typeof msg.t !== "string") return send(ws, { t: "error", code: "badMsg" });
       try {
         handle(ws, msg);
-      } catch (err) {
-        console.error(err);
+      } catch (err2) {
+        console.error(err2);
         send(ws, { t: "error", code: "server" });
       }
     });
