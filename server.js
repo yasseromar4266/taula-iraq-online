@@ -102,24 +102,24 @@ function singleMoves(pos, player, die) {
   }
   return moves;
 }
-function applyMove(pos, player, move2) {
+function applyMove(pos, player, move4) {
   const next = clonePosition(pos);
-  if (move2.from === BAR) next.bar[player] -= 1;
-  else addAt(next, player, move2.from, -1);
-  if (move2.to === OFF) {
+  if (move4.from === BAR) next.bar[player] -= 1;
+  else addAt(next, player, move4.from, -1);
+  if (move4.to === OFF) {
     next.off[player] += 1;
   } else {
     const opp = other(player);
-    if (countAt(next, opp, move2.to) === 1) {
-      addAt(next, opp, move2.to, -1);
+    if (countAt(next, opp, move4.to) === 1) {
+      addAt(next, opp, move4.to, -1);
       next.bar[opp] += 1;
     }
-    addAt(next, player, move2.to, 1);
+    addAt(next, player, move4.to, 1);
   }
   return next;
 }
-function isHit(pos, player, move2) {
-  return move2.to !== OFF && countAt(pos, other(player), move2.to) === 1;
+function isHit(pos, player, move4) {
+  return move4.to !== OFF && countAt(pos, other(player), move4.to) === 1;
 }
 function diceForRoll(a, b) {
   return a === b ? [a, a, a, a] : [a, b];
@@ -642,6 +642,244 @@ function choosePlay(match, me, level = "medium", rand2 = Math.random) {
   return heuristic(match, me, options, rand2);
 }
 
+// src/games/xo/engine.js
+var LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+var DEFAULT_TARGET2 = 3;
+function winnerOf2(board) {
+  for (const l of LINES) {
+    const [a, b, c] = l;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return { mark: board[a], line: l };
+  }
+  return board.every(Boolean) ? { mark: null, line: null } : null;
+}
+var markOf = (g, p) => g % 2 === 1 === (p === 0) ? "X" : "O";
+function createMatch3({ target = DEFAULT_TARGET2 } = {}) {
+  return { game: "xo", target, scores: [0, 0], gameNo: 1, board: Array(9).fill(null), turn: 0, phase: "play", result: null, matchWinner: null, lastMove: null };
+}
+function move2(m, p, cell) {
+  if (m.phase !== "play") return { ok: false, error: "not playing" };
+  if (m.turn !== p) return { ok: false, error: "not your turn" };
+  if (!Number.isInteger(cell) || cell < 0 || cell > 8 || m.board[cell]) return { ok: false, error: "illegal" };
+  m.board = m.board.slice();
+  m.board[cell] = markOf(m.gameNo, p);
+  m.lastMove = cell;
+  const w = winnerOf2(m.board);
+  if (w) {
+    const winner = w.mark === null ? null : markOf(m.gameNo, 0) === w.mark ? 0 : 1;
+    if (winner !== null) m.scores[winner] += 1;
+    m.result = { winner, line: w.line };
+    if (winner !== null && m.scores[winner] >= m.target) {
+      m.matchWinner = winner;
+      m.phase = "matchover";
+    } else m.phase = "gameover";
+    return { ok: true, gameOver: true };
+  }
+  m.turn = 1 - p;
+  return { ok: true };
+}
+function nextGame2(m) {
+  if (m.phase !== "gameover") return { ok: false, error: "game not over" };
+  m.gameNo += 1;
+  m.board = Array(9).fill(null);
+  m.result = null;
+  m.lastMove = null;
+  m.phase = "play";
+  m.turn = markOf(m.gameNo, 0) === "X" ? 0 : 1;
+  return { ok: true };
+}
+function forfeit3(m, p) {
+  if (m.matchWinner !== null) return { ok: false, error: "over" };
+  m.matchWinner = 1 - p;
+  m.phase = "matchover";
+  m.forfeitedBy = p;
+  return { ok: true };
+}
+
+// src/games/ludo/engine.js
+var TRACK = 52;
+var HOME = 56;
+var START = [0, 13, 26, 39];
+var SAFE = /* @__PURE__ */ new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+var absOf = (seat, rel) => rel >= 0 && rel <= 50 ? (START[seat] + rel) % TRACK : null;
+var mathDie = () => 1 + Math.floor(Math.random() * 6);
+function createMatch4({ active = [true, false, true, false] } = {}) {
+  const seats = active.map(Boolean);
+  if (seats.filter(Boolean).length < 2) throw new Error("need at least 2 players");
+  return {
+    game: "ludo",
+    active: seats,
+    pieces: seats.map((on) => on ? [-1, -1, -1, -1] : null),
+    turn: seats.indexOf(true),
+    phase: "roll",
+    dice: null,
+    sixes: 0,
+    finished: [],
+    winner: null,
+    matchWinner: null,
+    lastMove: null,
+    lastRoll: null
+  };
+}
+function nextActive(m, p) {
+  for (let k = 1; k <= 4; k++) {
+    const q = (p + k) % 4;
+    if (m.active[q] && !m.finished.includes(q)) return q;
+  }
+  return p;
+}
+function legalMoves2(m, p = m.turn, dice = m.dice) {
+  if (m.phase !== "move" || p !== m.turn || !dice) return [];
+  const out = [];
+  m.pieces[p].forEach((rel, token) => {
+    let to;
+    if (rel === -1) {
+      if (dice !== 6) return;
+      to = 0;
+    } else if (rel === HOME) return;
+    else {
+      to = rel + dice;
+      if (to > HOME) return;
+    }
+    out.push({ token, from: rel, to, capture: capturesAt(m, p, to) });
+  });
+  return out;
+}
+function capturesAt(m, p, rel) {
+  const abs = absOf(p, rel);
+  if (abs === null || SAFE.has(abs)) return [];
+  const hits = [];
+  m.pieces.forEach((list, q) => {
+    if (!list || q === p) return;
+    list.forEach((r, t) => {
+      if (absOf(q, r) === abs) hits.push({ seat: q, token: t });
+    });
+  });
+  return hits;
+}
+function roll2(m, p, die = mathDie) {
+  if (m.phase !== "roll") return { ok: false, error: "not rolling" };
+  if (m.turn !== p) return { ok: false, error: "not your turn" };
+  const d = die();
+  m.dice = d;
+  m.lastRoll = { seat: p, dice: d };
+  if (d === 6) m.sixes += 1;
+  if (d === 6 && m.sixes >= 3) {
+    endTurn(m, true);
+    return { ok: true, dice: d, lost: true };
+  }
+  m.phase = "move";
+  if (!legalMoves2(m).length) {
+    afterMove(m, d);
+    return { ok: true, dice: d, noMove: true };
+  }
+  return { ok: true, dice: d };
+}
+function endTurn(m, forced = false) {
+  m.sixes = 0;
+  m.dice = null;
+  m.phase = "roll";
+  m.turn = nextActive(m, m.turn);
+  return forced;
+}
+function afterMove(m, d) {
+  if (m.winner !== null) return;
+  if (d === 6 && m.sixes < 3) {
+    m.dice = null;
+    m.phase = "roll";
+    return;
+  }
+  endTurn(m);
+}
+function move3(m, p, token) {
+  if (m.phase !== "move") return { ok: false, error: "not moving" };
+  if (m.turn !== p) return { ok: false, error: "not your turn" };
+  const mv = legalMoves2(m).find((x) => x.token === token);
+  if (!mv) return { ok: false, error: "illegal" };
+  m.pieces[p] = m.pieces[p].slice();
+  m.pieces[p][token] = mv.to;
+  for (const c of mv.capture) {
+    m.pieces[c.seat] = m.pieces[c.seat].slice();
+    m.pieces[c.seat][c.token] = -1;
+  }
+  m.lastMove = { seat: p, token, from: mv.from, to: mv.to, capture: mv.capture };
+  if (m.pieces[p].every((r) => r === HOME)) {
+    m.finished.push(p);
+    m.winner = p;
+    m.matchWinner = p;
+    m.phase = "matchover";
+    return { ok: true, ...mv, won: true };
+  }
+  afterMove(m, m.dice);
+  return { ok: true, ...mv };
+}
+function forfeit4(m, p) {
+  if (m.matchWinner !== null) return { ok: false, error: "over" };
+  m.active = m.active.slice();
+  m.active[p] = false;
+  m.pieces = m.pieces.slice();
+  m.pieces[p] = null;
+  const left = m.active.map((on, q) => on ? q : -1).filter((q) => q >= 0);
+  if (left.length === 1) {
+    m.matchWinner = left[0];
+    m.winner = left[0];
+    m.phase = "matchover";
+    m.forfeitedBy = p;
+  } else if (m.turn === p) {
+    m.turn = nextActive(m, p);
+    m.phase = "roll";
+    m.dice = null;
+    m.sixes = 0;
+  }
+  return { ok: true };
+}
+
+// src/games/ludo/ai.js
+function danger(m, p, rel) {
+  const abs = absOf(p, rel);
+  if (abs === null || SAFE.has(abs)) return 0;
+  let n = 0;
+  m.pieces.forEach((list, q) => {
+    if (!list || q === p) return;
+    for (const r of list) {
+      const a = absOf(q, r);
+      if (a === null) {
+        if (r === -1 && (abs - absOf(q, 0) + 52) % 52 <= 5) n += 0.3;
+        continue;
+      }
+      const gap = (abs - a + 52) % 52;
+      if (gap >= 1 && gap <= 6) n += 1;
+    }
+  });
+  return n;
+}
+function chooseMove(m, p, level = "medium", rand2 = Math.random) {
+  const moves = legalMoves2(m, p);
+  if (!moves.length) return null;
+  if (level === "easy") return moves[Math.floor(rand2() * moves.length)].token;
+  if (level === "medium") {
+    const cap = moves.find((x) => x.capture.length);
+    if (cap) return cap.token;
+    const enter = moves.find((x) => x.from === -1);
+    if (enter) return enter.token;
+    return moves.reduce((a, b) => b.from > a.from ? b : a).token;
+  }
+  let best = null;
+  for (const mv of moves) {
+    let s = 0;
+    s += mv.capture.length * (30 + mv.capture.reduce((t, c) => t + Math.max(0, m.pieces[c.seat][c.token]), 0) * 0.4);
+    if (mv.from === -1) s += 18;
+    if (mv.to === HOME) s += 25;
+    if (mv.to > 50 && mv.from <= 50) s += 14;
+    s += (mv.to - Math.max(mv.from, 0)) * 0.6;
+    if (mv.from >= 0 && mv.from <= 50) s += danger(m, p, mv.from) * 9;
+    if (mv.to <= 50) s -= danger(m, p, mv.to) * 11;
+    if (SAFE.has(absOf(p, mv.to) ?? -1)) s += 6;
+    s += rand2() * 0.5;
+    if (!best || s > best.s) best = { token: mv.token, s };
+  }
+  return best.token;
+}
+
 // server/games.js
 var serverDie = () => randomInt(1, 7);
 var rand = (n) => randomInt(0, n);
@@ -723,7 +961,78 @@ function dominoAct(m, seat, msg) {
   if (m.phase === "roundover" || m.phase === "matchover" && anim.kind !== "forfeit") anims.push({ kind: "roundover", result: m.round.result });
   return { ok: true, anims };
 }
+function xoAct(m, seat, msg) {
+  let res, anim = null;
+  switch (msg.a) {
+    case "move": {
+      if (!Number.isInteger(msg.cell)) return { ok: false, error: "\u062D\u0631\u0643\u0629 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" };
+      res = move2(m, seat, msg.cell);
+      if (res.ok) anim = { kind: "move", player: seat, cell: msg.cell };
+      break;
+    }
+    case "nextGame": {
+      res = nextGame2(m);
+      if (res.ok) anim = { kind: "newgame" };
+      break;
+    }
+    case "resign": {
+      res = forfeit3(m, seat);
+      if (res.ok) anim = { kind: "forfeit", loser: seat };
+      break;
+    }
+    default:
+      return { ok: false, error: "\u0625\u062C\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641" };
+  }
+  if (!res.ok) return res;
+  return { ok: true, anims: [anim] };
+}
+function ludoAct(m, seat, msg) {
+  let res, anim = null;
+  switch (msg.a) {
+    case "roll": {
+      res = roll2(m, seat, serverDie);
+      if (res.ok) anim = { kind: "roll", player: seat, dice: res.dice, noMove: !!res.noMove, lost: !!res.lost };
+      break;
+    }
+    case "move": {
+      if (!Number.isInteger(msg.token) || msg.token < 0 || msg.token > 3) return { ok: false, error: "\u062D\u0631\u0643\u0629 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629" };
+      res = move3(m, seat, msg.token);
+      if (res.ok) anim = { kind: "move", player: seat, token: msg.token, from: res.from, to: res.to, capture: res.capture };
+      break;
+    }
+    case "resign": {
+      res = forfeit4(m, seat);
+      if (res.ok) anim = { kind: "forfeit", loser: seat };
+      break;
+    }
+    default:
+      return { ok: false, error: "\u0625\u062C\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u0639\u0631\u0648\u0641" };
+  }
+  if (!res.ok) return res;
+  return { ok: true, anims: [anim] };
+}
 var GAMES = {
+  // 2 to 4 players. The room can start with whoever has joined, or fill empty seats with the computer.
+  ludo: {
+    seats: 4,
+    create: (active) => createMatch4({ active: active || [true, false, true, false] }),
+    view: (m) => m,
+    act: ludoAct,
+    forfeit: (m, seat) => forfeit4(m, seat),
+    over: (m) => m.matchWinner !== null,
+    bots: true,
+    startPartial: true,
+    turnSeat: (m) => m.phase === "roll" || m.phase === "move" ? m.turn : null,
+    botMove: (m, seat) => m.phase === "roll" ? { a: "roll" } : { a: "move", token: chooseMove(m, seat, "medium") }
+  },
+  xo: {
+    seats: 2,
+    create: () => createMatch3(),
+    view: (m) => m,
+    act: xoAct,
+    forfeit: (m, seat) => forfeit3(m, seat),
+    over: (m) => m.matchWinner !== null
+  },
   tawla: {
     seats: 2,
     create: () => createMatch({ target: DEFAULT_MATCH_TARGET }),
@@ -861,7 +1170,7 @@ function createMusicSearch({
 // server/stats.js
 import { timingSafeEqual, createHash } from "node:crypto";
 var DAY_TTL = 400 * 24 * 3600;
-var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "music_search"];
+var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "match_xo_easy", "match_xo_medium", "match_xo_hard", "match_xo_online", "match_ludo_easy", "match_ludo_medium", "match_ludo_hard", "match_ludo_online", "music_search"];
 var dayOf = (t = Date.now()) => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
 var daysBack = (n) => Array.from({ length: n }, (_, i) => dayOf(Date.now() - i * 864e5)).reverse();
 function memoryStore() {
@@ -1037,7 +1346,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-TD6Nkarer+CS5B9NSlV2ProLyNwX7FYTkv6jtFuHnvE=";
+var SCRIPT_HASH = "sha256-ziU3yBRnuSSMX6RogifagScG9c5QzjbEdzW6viINMY8=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -1072,6 +1381,7 @@ function cleanName(s) {
 var AVATARS = /* @__PURE__ */ new Set(["\u{1F981}", "\u{1F334}", "\u{1F319}", "\u{1F40E}", "\u{1FAD6}", "\u{1F3FA}", "\u2B50", "\u{1F985}"]);
 var cleanAvatar = (a) => AVATARS.has(a) ? a : "\u{1F981}";
 var BOT = "BOT";
+var EMPTY = "EMPTY";
 var isHuman = (tok) => !!tok && tok !== BOT;
 function publicPlayers(room) {
   return room.seats.map((tok) => {
@@ -1091,7 +1401,7 @@ function broadcastState(room, anim = null) {
 function broadcastLobby(room) {
   room.seats.forEach((tok, seat) => {
     const p = isHuman(tok) && players.get(tok);
-    if (p) send(p.ws, { t: "room", code: room.code, game: room.game, you: seat, seats: publicPlayers(room), canFill: !!GAMES[room.game].bots });
+    if (p) send(p.ws, { t: "room", code: room.code, game: room.game, you: seat, seats: publicPlayers(room), canFill: !!GAMES[room.game].bots, canStartPartial: !!GAMES[room.game].startPartial });
   });
 }
 function scheduleBots(room) {
@@ -1124,7 +1434,8 @@ function seatPlayer(room, token, seat) {
 }
 function startIfFull(room) {
   if (room.seats.every(Boolean) && !room.match) {
-    room.match = GAMES[room.game].create();
+    room.match = GAMES[room.game].create(room.seats.map((t) => t !== EMPTY));
+    room.seats = room.seats.map((t) => t === EMPTY ? null : t);
     broadcastState(room, { kind: "start" });
   }
 }
@@ -1146,7 +1457,7 @@ function closeRoom(room) {
   clearTimeout(room.botTimer);
   rooms.delete(room.code);
 }
-function leaveRoom(token, { forfeit: forfeit3 = true } = {}) {
+function leaveRoom(token, { forfeit: forfeit5 = true } = {}) {
   const p = players.get(token);
   if (!p || !p.roomCode) return;
   const room = rooms.get(p.roomCode);
@@ -1155,7 +1466,7 @@ function leaveRoom(token, { forfeit: forfeit3 = true } = {}) {
   if (!room) return;
   const seat = room.seats.indexOf(token);
   const g = GAMES[room.game];
-  if (room.match && room.match.matchWinner === null && forfeit3 && seat >= 0) {
+  if (room.match && room.match.matchWinner === null && forfeit5 && seat >= 0) {
     if (g.bots && room.seats.some((t, i) => i !== seat && isHuman(t))) {
       room.seats[seat] = BOT;
       broadcastState(room, { kind: "botTakeover", player: seat });
@@ -1295,8 +1606,12 @@ function handle(ws, msg) {
     }
     case "fill": {
       const room = p.roomCode && rooms.get(p.roomCode);
-      if (!room || room.match || !GAMES[room.game].bots) return send(ws, { t: "error", code: "cantFill" });
-      room.seats = room.seats.map((t) => t || BOT);
+      const g = room && GAMES[room.game];
+      if (!room || room.match || !g.bots) return send(ws, { t: "error", code: "cantFill" });
+      if (msg.bots === false) {
+        if (!g.startPartial || room.seats.filter(Boolean).length < 2) return send(ws, { t: "error", code: "needTwo" });
+        room.seats = room.seats.map((t) => t || EMPTY);
+      } else room.seats = room.seats.map((t) => t || BOT);
       startIfFull(room);
       break;
     }
