@@ -2358,7 +2358,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-99vqoSxn55zofwDIBR4LEwocpbJEBOdplE+yvxG7gdk=";
+var SCRIPT_HASH = "sha256-negtN5hCsD8C5B5zV3uHjByh8db6DvuwObLR+IV5KeY=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -2732,7 +2732,7 @@ async function serveStatic(req, res) {
       res.end(body);
     } catch {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-      res.end("TAULA IRAQ server is running. Build the game first: npm run build");
+      res.end("THE IRAQI DIWAN server is running. Build the game first: npm run build");
     }
   }
 }
@@ -2829,7 +2829,7 @@ function startServer(port = PORT) {
   }));
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  startServer().then(() => console.log(`TAULA IRAQ server on http://localhost:${PORT}  (WebSocket: /ws)`));
+  startServer().then(() => console.log(`THE IRAQI DIWAN server on http://localhost:${PORT}  (WebSocket: /ws)`));
 }
 export {
   startServer
