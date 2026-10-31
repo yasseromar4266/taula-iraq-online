@@ -23,16 +23,16 @@ var DEFAULT_MATCH_TARGET = 5;
 var other = (p) => 1 - p;
 var dirOf = (p) => p === 0 ? -1 : 1;
 function createInitialPosition() {
-  const points = new Array(24).fill(0);
-  points[23] = 2;
-  points[12] = 5;
-  points[7] = 3;
-  points[5] = 5;
-  points[0] = -2;
-  points[11] = -5;
-  points[16] = -3;
-  points[18] = -5;
-  return { points, bar: [0, 0], off: [0, 0] };
+  const points2 = new Array(24).fill(0);
+  points2[23] = 2;
+  points2[12] = 5;
+  points2[7] = 3;
+  points2[5] = 5;
+  points2[0] = -2;
+  points2[11] = -5;
+  points2[16] = -3;
+  points2[18] = -5;
+  return { points: points2, bar: [0, 0], off: [0, 0] };
 }
 function clonePosition(pos) {
   return { points: pos.points.slice(), bar: pos.bar.slice(), off: pos.off.slice() };
@@ -103,20 +103,20 @@ function singleMoves(pos, player, die) {
   return moves;
 }
 function applyMove(pos, player, move4) {
-  const next = clonePosition(pos);
-  if (move4.from === BAR) next.bar[player] -= 1;
-  else addAt(next, player, move4.from, -1);
+  const next2 = clonePosition(pos);
+  if (move4.from === BAR) next2.bar[player] -= 1;
+  else addAt(next2, player, move4.from, -1);
   if (move4.to === OFF) {
-    next.off[player] += 1;
+    next2.off[player] += 1;
   } else {
     const opp = other(player);
-    if (countAt(next, opp, move4.to) === 1) {
-      addAt(next, opp, move4.to, -1);
-      next.bar[opp] += 1;
+    if (countAt(next2, opp, move4.to) === 1) {
+      addAt(next2, opp, move4.to, -1);
+      next2.bar[opp] += 1;
     }
-    addAt(next, player, move4.to, 1);
+    addAt(next2, player, move4.to, 1);
   }
-  return next;
+  return next2;
 }
 function isHit(pos, player, move4) {
   return move4.to !== OFF && countAt(pos, other(player), move4.to) === 1;
@@ -452,9 +452,9 @@ function endRound(match, winnerSide, reason, outPlayer = null) {
   const n = match.players;
   const sidePips = [0, 0];
   for (let p = 0; p < n; p++) sidePips[sideOf(match, p)] += handPips(r.hands[p]);
-  const points = winnerSide === null ? 0 : sidePips[1 - winnerSide];
-  if (winnerSide !== null) match.scores[winnerSide] += points;
-  r.result = { winner: winnerSide, reason, points, outPlayer, sidePips, handPips: r.hands.map(handPips), hands: r.hands.map((h) => h.slice()) };
+  const points2 = winnerSide === null ? 0 : sidePips[1 - winnerSide];
+  if (winnerSide !== null) match.scores[winnerSide] += points2;
+  r.result = { winner: winnerSide, reason, points: points2, outPlayer, sidePips, handPips: r.hands.map(handPips), hands: r.hands.map((h) => h.slice()) };
   if (outPlayer !== null) match.lastWinner = outPlayer;
   else if (winnerSide !== null) {
     let best = null;
@@ -559,9 +559,9 @@ function after(ends, id, side) {
 function heuristic(match, me, options, rand2) {
   const r = match.round;
   const hand = r.hands[me];
-  const next = nextSeat2(match, me);
+  const next2 = nextSeat2(match, me);
   const partner = partnerOf2(match, me);
-  const nextMisses = new Set(r.missing[next] || []);
+  const nextMisses = new Set(r.missing[next2] || []);
   const partnerMisses = partner === null ? /* @__PURE__ */ new Set() : new Set(r.missing[partner] || []);
   let best = null;
   for (const o of options) {
@@ -1087,9 +1087,9 @@ function layoff(m, seat, card, meldId) {
   if (!r.opened[seat]) return err("needOpenFirst");
   const md = r.melds.find((x) => x.id === meldId);
   if (!md || !ownsAll(r.hands[seat], [card])) return err("badLayoff");
-  const next = tryExtend(md, card);
-  if (!next) return err("badLayoff");
-  md.cards = next;
+  const next2 = tryExtend(md, card);
+  if (!next2) return err("badLayoff");
+  md.cards = next2;
   r.hands[seat].splice(r.hands[seat].indexOf(card), 1);
   r.acted = true;
   r.last = { kind: "layoff", seat, card, meld: meldId };
@@ -1123,18 +1123,18 @@ function discard(m, seat, card) {
 }
 function endRound2(m, winner) {
   const r = m.round;
-  const points = m.active.map((a, s) => {
+  const points2 = m.active.map((a, s) => {
     if (!a) return null;
     if (winner === null) return 0;
     if (s === winner) return 0;
     if (!r.opened[s]) return NOT_OPENED;
     return r.hands[s].reduce((t, c) => t + handValue(c), 0);
   });
-  points.forEach((p, s) => {
+  points2.forEach((p, s) => {
     if (p !== null) m.scores[s] += p;
   });
-  r.result = { winner, points, hands: r.hands.map((h) => h ? h.slice() : null), totals: m.scores.slice() };
-  m.history.push(points);
+  r.result = { winner, points: points2, hands: r.hands.map((h) => h ? h.slice() : null), totals: m.scores.slice() };
+  m.history.push(points2);
   m.phase = "roundover";
   if (winner !== null) m.dealer = winner;
 }
@@ -1287,11 +1287,11 @@ function chooseDiscard(m, seat, level, rand2) {
   const nonJ = pool.filter((c) => !isJoker(c));
   const list = nonJ.length ? nonJ : pool;
   if (level === "easy") return list[Math.floor(rand2() * list.length)];
-  const next = nextSeat3(m, seat);
+  const next2 = nextSeat3(m, seat);
   let best = null;
   for (const c of list) {
     let s = connections(hand, c) * 10 - handValue(c);
-    if (level === "hard" && r.opened[next] && r.melds.some((md) => tryExtend(md, c))) s += 25;
+    if (level === "hard" && r.opened[next2] && r.melds.some((md) => tryExtend(md, c))) s += 25;
     s += rand2() * 0.5;
     if (!best || s < best.s) best = { c, s };
   }
@@ -1341,6 +1341,374 @@ function chooseAction(m, seat, level = "medium", rand2 = Math.random) {
   }
   if (r.mustOpen && !r.opened[seat]) return { a: "undoTake" };
   return { a: "discard", card: chooseDiscard(m, seat, level, rand2) };
+}
+
+// src/games/snakes/engine.js
+var LADDERS = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 36: 44, 51: 67, 71: 91, 80: 100 };
+var SNAKES = { 16: 6, 47: 26, 49: 11, 56: 53, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 78 };
+var GOAL = 100;
+var mathDie2 = () => 1 + Math.floor(Math.random() * 6);
+function nextActive3(m, seat) {
+  for (let k = 1; k <= 4; k++) {
+    const s = (seat + k) % 4;
+    if (m.active[s]) return s;
+  }
+  return seat;
+}
+function createMatch6({ active = [true, false, true, false] } = {}) {
+  return { active: active.slice(), pos: active.map((a) => a ? 0 : null), turn: active.indexOf(true), phase: "roll", lastRoll: null, matchWinner: null, rolls: 0 };
+}
+function roll3(m, p, die = mathDie2) {
+  if (m.matchWinner !== null || m.phase !== "roll") return { ok: false, error: "over" };
+  if (m.turn !== p) return { ok: false, error: "notYourTurn" };
+  const d = die();
+  const from = m.pos[p];
+  let land = from + d;
+  let to = land, via = null;
+  if (land > GOAL) {
+    land = from;
+    to = from;
+  } else if (LADDERS[land]) {
+    to = LADDERS[land];
+    via = "ladder";
+  } else if (SNAKES[land]) {
+    to = SNAKES[land];
+    via = "snake";
+  }
+  m.pos[p] = to;
+  m.rolls += 1;
+  m.lastRoll = { seat: p, dice: d, from, land, to, via, n: m.rolls };
+  if (to === GOAL) {
+    m.matchWinner = p;
+    m.phase = "over";
+    return { ok: true, ...m.lastRoll, won: true };
+  }
+  if (d !== 6) m.turn = nextActive3(m, p);
+  return { ok: true, ...m.lastRoll };
+}
+function forfeit6(m, seat) {
+  if (m.matchWinner !== null) return { ok: false, error: "over" };
+  const others = m.active.map((a, s) => a && s !== seat ? s : -1).filter((s) => s >= 0);
+  m.matchWinner = others.sort((a, b) => m.pos[b] - m.pos[a])[0] ?? null;
+  m.forfeitedBy = seat;
+  m.phase = "over";
+  return { ok: true };
+}
+
+// src/games/uno/engine.js
+var TARGET = 300;
+var SKIP = 10;
+var REVERSE = 11;
+var DRAW2 = 12;
+var WILD = 13;
+var WILD4 = 14;
+var CARDS = (() => {
+  const out = [];
+  for (let c = 0; c < 4; c++) {
+    out.push({ c, v: 0 });
+    for (let v = 1; v <= 12; v++) {
+      out.push({ c, v });
+      out.push({ c, v });
+    }
+  }
+  for (let k = 0; k < 4; k++) out.push({ c: 4, v: WILD });
+  for (let k = 0; k < 4; k++) out.push({ c: 4, v: WILD4 });
+  return out;
+})();
+var DECK2 = CARDS.length;
+var points = (id) => {
+  const { v } = CARDS[id];
+  return v >= WILD ? 50 : v >= SKIP ? 20 : v;
+};
+var defaultRand2 = (n) => Math.floor(Math.random() * n);
+function shuffle3(a, rand2) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = rand2(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function nextSeat4(m, seat, steps = 1) {
+  let s = seat;
+  for (let k = 0; k < steps; k++) {
+    do {
+      s = (s + m.dir + 4) % 4;
+    } while (!m.active[s]);
+  }
+  return s;
+}
+function createMatch7({ active = [true, false, true, false], rand: rand2 = defaultRand2, target = TARGET } = {}) {
+  const m = { active: active.slice(), scores: active.map((a) => a ? 0 : null), target, dealer: active.indexOf(true), roundNo: 0, matchWinner: null, phase: "play", round: null, dir: 1 };
+  newRound3(m, rand2);
+  return m;
+}
+function newRound3(m, rand2 = defaultRand2) {
+  const deck = shuffle3(Array.from({ length: DECK2 }, (_, i) => i), rand2);
+  const hands = m.active.map((a) => a ? deck.splice(0, 7) : null);
+  let first;
+  for (; ; ) {
+    first = deck.pop();
+    if (CARDS[first].v !== WILD4) break;
+    deck.unshift(first);
+  }
+  m.dir = 1;
+  m.roundNo += 1;
+  const r = { hands, draw: deck, discard: [first], color: CARDS[first].c === 4 ? rand2(4) : CARDS[first].c, turn: 0, drew: null, result: null, last: null };
+  m.round = r;
+  m.phase = "play";
+  const v = CARDS[first].v;
+  if (v === REVERSE) m.dir = -1;
+  let start = countActive(m) === 2 && v === REVERSE ? m.dealer : nextSeat4(m, m.dealer);
+  if (v === SKIP) start = nextSeat4(m, start);
+  if (v === DRAW2) {
+    drawCards(m, start, 2, rand2);
+    start = nextSeat4(m, start);
+  }
+  r.turn = start;
+  return m;
+}
+var countActive = (m) => m.active.filter(Boolean).length;
+var err2 = (e) => ({ ok: false, error: e });
+function refill(m, rand2) {
+  const r = m.round;
+  if (r.draw.length) return true;
+  if (r.discard.length <= 1) return false;
+  const top = r.discard.pop();
+  r.draw = shuffle3(r.discard, rand2);
+  r.discard = [top];
+  return true;
+}
+function drawCards(m, seat, n, rand2) {
+  const got = [];
+  for (let k = 0; k < n; k++) {
+    if (!refill(m, rand2)) break;
+    const c = m.round.draw.pop();
+    m.round.hands[seat].push(c);
+    got.push(c);
+  }
+  return got;
+}
+var topCard = (m) => m.round.discard[m.round.discard.length - 1];
+function canPlay(m, id) {
+  const card = CARDS[id], top = CARDS[topCard(m)];
+  if (card.c === 4) return true;
+  return card.c === m.round.color || card.v === top.v;
+}
+function legalPlays3(m, seat) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat || !Array.isArray(r.hands[seat])) return [];
+  const hand = r.drew !== null ? [r.drew] : r.hands[seat];
+  return hand.filter((id) => canPlay(m, id));
+}
+function play2(m, seat, id, color = null, rand2 = defaultRand2) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat) return err2("notYourTurn");
+  if (!r.hands[seat].includes(id)) return err2("badCard");
+  if (r.drew !== null && id !== r.drew) return err2("onlyDrawn");
+  if (!canPlay(m, id)) return err2("cantPlay");
+  const card = CARDS[id];
+  if (card.c === 4 && !(Number.isInteger(color) && color >= 0 && color < 4)) return err2("needColor");
+  r.hands[seat].splice(r.hands[seat].indexOf(id), 1);
+  r.discard.push(id);
+  r.color = card.c === 4 ? color : card.c;
+  r.drew = null;
+  const res = { ok: true, card: id, color: r.color };
+  r.last = { kind: "play", seat, card: id, color: r.color };
+  if (!r.hands[seat].length) {
+    endRound3(m, seat);
+    res.out = true;
+    return res;
+  }
+  let next2 = nextSeat4(m, seat);
+  if (card.v === SKIP) {
+    res.skipped = next2;
+    next2 = nextSeat4(m, next2);
+  } else if (card.v === REVERSE) {
+    m.dir = -m.dir;
+    if (countActive(m) === 2) {
+      res.skipped = nextSeat4(m, seat);
+      next2 = seat;
+    } else next2 = nextSeat4(m, seat);
+  } else if (card.v === DRAW2) {
+    drawCards(m, next2, 2, rand2);
+    res.skipped = next2;
+    res.drawn = 2;
+    next2 = nextSeat4(m, next2);
+  } else if (card.v === WILD4) {
+    drawCards(m, next2, 4, rand2);
+    res.skipped = next2;
+    res.drawn = 4;
+    next2 = nextSeat4(m, next2);
+  }
+  r.turn = next2;
+  return res;
+}
+function draw2(m, seat, rand2 = defaultRand2) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat) return err2("notYourTurn");
+  if (r.drew !== null) return err2("alreadyDrew");
+  const got = drawCards(m, seat, 1, rand2);
+  if (!got.length) {
+    r.turn = nextSeat4(m, seat);
+    return { ok: true, card: null, passed: true };
+  }
+  const c = got[0];
+  r.last = { kind: "draw", seat };
+  if (canPlay(m, c)) {
+    r.drew = c;
+    return { ok: true, card: c, playable: true };
+  }
+  r.turn = nextSeat4(m, seat);
+  return { ok: true, card: c, playable: false, passed: true };
+}
+function pass(m, seat) {
+  const r = m.round;
+  if (m.phase !== "play" || r.turn !== seat || r.drew === null) return err2("cantPass");
+  r.drew = null;
+  r.turn = nextSeat4(m, seat);
+  r.last = { kind: "pass", seat };
+  return { ok: true };
+}
+function endRound3(m, winner) {
+  const r = m.round;
+  let pts = 0;
+  r.hands.forEach((h, s) => {
+    if (h && s !== winner) pts += h.reduce((t, c) => t + points(c), 0);
+  });
+  m.scores[winner] += pts;
+  r.result = { winner, points: pts, hands: r.hands.map((h) => h ? h.slice() : null) };
+  m.dealer = winner;
+  if (m.scores[winner] >= m.target) {
+    m.matchWinner = winner;
+    m.phase = "matchover";
+  } else m.phase = "roundover";
+}
+function nextRound3(m, rand2 = defaultRand2) {
+  if (m.phase !== "roundover") return err2("notOver");
+  newRound3(m, rand2);
+  return { ok: true };
+}
+function forfeit7(m, seat) {
+  if (m.matchWinner !== null) return err2("over");
+  let best = null;
+  m.active.forEach((a, s) => {
+    if (a && s !== seat && (best === null || m.scores[s] > m.scores[best])) best = s;
+  });
+  m.matchWinner = best;
+  m.forfeitedBy = seat;
+  m.phase = "matchover";
+  return { ok: true };
+}
+function viewFor3(m, seat) {
+  const r = m.round;
+  const showAll = m.phase !== "play";
+  return {
+    ...m,
+    round: { ...r, hands: r.hands.map((h, s) => h === null ? null : s === seat || showAll ? h.slice() : h.length), draw: r.draw.length, discard: r.discard.slice(-3), drew: r.turn === seat ? r.drew : null }
+  };
+}
+
+// src/games/uno/ai.js
+function bestColor(hand, rand2) {
+  const n = [0, 0, 0, 0];
+  for (const id of hand) if (CARDS[id].c < 4) n[CARDS[id].c] += 1;
+  const max = Math.max(...n);
+  if (max === 0) return Math.floor(rand2() * 4);
+  return n.indexOf(max);
+}
+function chooseAction2(m, seat, level = "medium", rand2 = Math.random) {
+  const r = m.round;
+  const hand = r.hands[seat];
+  const plays = legalPlays3(m, seat);
+  if (!plays.length) return r.drew !== null ? { a: "pass" } : { a: "draw" };
+  if (level === "easy") {
+    const id2 = plays[Math.floor(rand2() * plays.length)];
+    return { a: "play", card: id2, color: CARDS[id2].c === 4 ? Math.floor(rand2() * 4) : void 0 };
+  }
+  const next2 = nextSeat4(m, seat);
+  const nextCount = Array.isArray(r.hands[next2]) ? r.hands[next2].length : r.hands[next2];
+  const fav = bestColor(hand.filter((x) => !plays.includes(x) || CARDS[x].c < 4), rand2);
+  let best = null;
+  for (const id2 of plays) {
+    const { c, v } = CARDS[id2];
+    let s = 0;
+    if (c === 4) s -= v === WILD4 ? 30 : 20;
+    if (c === fav) s += 6;
+    if (level === "hard") {
+      s += points(id2) * 0.3;
+      if (nextCount <= 2 && (v === DRAW2 || v === WILD4 || v === SKIP || v === REVERSE)) s += 40;
+    }
+    if (hand.length <= 2 && c === 4) s += 25;
+    s += rand2() * 0.5;
+    if (!best || s > best.s) best = { id: id2, s };
+  }
+  const id = best.id;
+  return { a: "play", card: id, color: CARDS[id].c === 4 ? bestColor(hand.filter((x) => x !== id), rand2) : void 0 };
+}
+
+// src/games/mheibes/engine.js
+var HANDS = 6;
+var TARGET2 = 10;
+function createMatch8({ firstHider = 1, target = TARGET2, hands = HANDS } = {}) {
+  return { scores: [0, 0], target, hands, hider: firstHider, phase: "hide", ring: null, out: [], roundNo: 1, result: null, matchWinner: null, history: [] };
+}
+var err3 = (e) => ({ ok: false, error: e });
+function hide(m, team, hand) {
+  if (m.phase !== "hide" || team !== m.hider) return err3("notYourTurn");
+  if (!Number.isInteger(hand) || hand < 0 || hand >= m.hands) return err3("badHand");
+  m.ring = hand;
+  m.out = [];
+  m.phase = "guess";
+  return { ok: true };
+}
+function finish(m, found, kind, hand) {
+  const guesser = 1 - m.hider;
+  const winner = found ? guesser : m.hider;
+  m.scores[winner] += 1;
+  m.result = { found, kind, hand, ring: m.ring, winner, hider: m.hider };
+  m.history.push(m.ring);
+  if (found) m.hider = guesser;
+  m.phase = m.scores[winner] >= m.target ? "over" : "reveal";
+  if (m.phase === "over") m.matchWinner = winner;
+}
+function guess(m, team, hand, kind) {
+  if (m.phase !== "guess" || team !== 1 - m.hider) return err3("notYourTurn");
+  if (!Number.isInteger(hand) || hand < 0 || hand >= m.hands || m.out.includes(hand)) return err3("badHand");
+  if (kind !== "bat" && kind !== "jib") return err3("badKind");
+  if (kind === "jib") {
+    finish(m, hand === m.ring, kind, hand);
+    return { ok: true, found: hand === m.ring };
+  }
+  if (hand === m.ring) {
+    finish(m, false, kind, hand);
+    return { ok: true, found: false };
+  }
+  m.out.push(hand);
+  if (m.out.length === m.hands - 1) {
+    finish(m, true, "last", m.ring);
+    return { ok: true, found: true, last: true };
+  }
+  return { ok: true, empty: true };
+}
+function next(m) {
+  if (m.phase !== "reveal") return err3("notOver");
+  m.phase = "hide";
+  m.ring = null;
+  m.out = [];
+  m.result = null;
+  m.roundNo += 1;
+  return { ok: true };
+}
+function forfeit8(m, team) {
+  if (m.matchWinner !== null) return err3("over");
+  m.matchWinner = 1 - team;
+  m.forfeitedBy = team;
+  m.phase = "over";
+  return { ok: true };
+}
+function viewFor4(m, team) {
+  const show = m.phase === "reveal" || m.phase === "over" || team === m.hider;
+  return { ...m, ring: show ? m.ring : null, out: m.out.slice(), history: void 0 };
 }
 
 // server/games.js
@@ -1526,7 +1894,115 @@ function kunkanAct(m, seat, msg) {
   if (m.phase === "roundover" && anim.kind !== "newround") anims.push({ kind: "roundover" });
   return { ok: true, anims };
 }
+function snakesAct(m, seat, msg) {
+  let res, anim;
+  if (msg.a === "roll") {
+    res = roll3(m, seat, serverDie);
+    if (res.ok) anim = { kind: "roll", ...res, player: seat };
+  } else if (msg.a === "resign") {
+    res = forfeit6(m, seat);
+    if (res.ok) anim = { kind: "forfeit", loser: seat };
+  } else return { ok: false, error: "bad" };
+  return res.ok ? { ok: true, anims: [anim] } : res;
+}
+function unoAct(m, seat, msg) {
+  let res, anim;
+  switch (msg.a) {
+    case "play": {
+      if (!Number.isInteger(msg.card) || msg.card < 0 || msg.card >= DECK2) return { ok: false, error: "bad" };
+      res = play2(m, seat, msg.card, Number.isInteger(msg.color) ? msg.color : null, rand);
+      if (res.ok) anim = { kind: "play", player: seat, card: msg.card, color: res.color, skipped: res.skipped, drawn: res.drawn };
+      break;
+    }
+    case "draw": {
+      res = draw2(m, seat, rand);
+      if (res.ok) anim = { kind: "draw", player: seat, passed: !!res.passed };
+      break;
+    }
+    case "pass": {
+      res = pass(m, seat);
+      if (res.ok) anim = { kind: "pass", player: seat };
+      break;
+    }
+    case "nextRound": {
+      res = nextRound3(m, rand);
+      if (res.ok) anim = { kind: "newround" };
+      break;
+    }
+    case "resign": {
+      res = forfeit7(m, seat);
+      if (res.ok) anim = { kind: "forfeit", loser: seat };
+      break;
+    }
+    default:
+      return { ok: false, error: "bad" };
+  }
+  return res.ok ? { ok: true, anims: [anim] } : res;
+}
+function mheibesAct(m, seat, msg) {
+  let res, anim;
+  switch (msg.a) {
+    case "hide": {
+      res = hide(m, seat, msg.hand);
+      if (res.ok) anim = { kind: "hide", team: seat };
+      break;
+    }
+    case "guess": {
+      res = guess(m, seat, msg.hand, msg.how);
+      if (res.ok) anim = { kind: "guess", team: seat, hand: msg.hand, how: msg.how, found: res.found, empty: res.empty };
+      break;
+    }
+    case "nextRound": {
+      res = next(m);
+      if (res.ok) anim = { kind: "newround" };
+      break;
+    }
+    case "resign": {
+      res = forfeit8(m, seat);
+      if (res.ok) anim = { kind: "forfeit", loser: seat };
+      break;
+    }
+    default:
+      return { ok: false, error: "bad" };
+  }
+  return res.ok ? { ok: true, anims: [anim] } : res;
+}
 var GAMES = {
+  snakes: {
+    seats: 4,
+    create: (active) => createMatch6({ active: active || [true, false, true, false] }),
+    view: (m) => m,
+    act: snakesAct,
+    forfeit: (m, seat) => forfeit6(m, seat),
+    over: (m) => m.matchWinner !== null,
+    bots: true,
+    startPartial: true,
+    turnSeat: (m) => m.matchWinner === null ? m.turn : null,
+    botMove: () => ({ a: "roll" })
+  },
+  uno: {
+    seats: 4,
+    create: (active) => createMatch7({ active: active || [true, false, true, false], rand }),
+    view: (m, seat) => viewFor3(m, seat),
+    act: unoAct,
+    forfeit: (m, seat) => forfeit7(m, seat),
+    over: (m) => m.matchWinner !== null,
+    bots: true,
+    startPartial: true,
+    turnSeat: (m) => m.phase === "play" ? m.round.turn : null,
+    botMove: (m, seat) => {
+      const a = chooseAction2(m, seat, "medium");
+      return a.a === "play" ? { a: "play", card: a.card, color: a.color } : a;
+    }
+  },
+  mheibes: {
+    seats: 2,
+    create: () => createMatch8({ firstHider: rand(2) }),
+    view: (m, seat) => viewFor4(m, seat),
+    act: mheibesAct,
+    forfeit: (m, seat) => forfeit8(m, seat),
+    over: (m) => m.matchWinner !== null
+  },
   // Kunkan: 2 to 5 players; start with whoever joined, or let the computer fill the empty seats.
   kunkan: {
     seats: 5,
@@ -1704,7 +2180,7 @@ function createMusicSearch({
 // server/stats.js
 import { timingSafeEqual, createHash } from "node:crypto";
 var DAY_TTL = 400 * 24 * 3600;
-var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "match_xo_easy", "match_xo_medium", "match_xo_hard", "match_xo_online", "match_ludo_easy", "match_ludo_medium", "match_ludo_hard", "match_ludo_online", "match_kunkan_easy", "match_kunkan_medium", "match_kunkan_hard", "match_kunkan_online", "music_search"];
+var EVENT_TYPES = ["match_easy", "match_medium", "match_hard", "match_online", "match_domino_easy", "match_domino_medium", "match_domino_hard", "match_domino_online", "match_xo_easy", "match_xo_medium", "match_xo_hard", "match_xo_online", "match_ludo_easy", "match_ludo_medium", "match_ludo_hard", "match_ludo_online", "match_kunkan_easy", "match_kunkan_medium", "match_kunkan_hard", "match_kunkan_online", "match_snakes_local", "match_snakes_online", "match_uno_easy", "match_uno_medium", "match_uno_hard", "match_uno_online", "match_mheibes_easy", "match_mheibes_medium", "match_mheibes_hard", "match_mheibes_online", "music_search"];
 var dayOf = (t = Date.now()) => new Date(t).toLocaleDateString("en-CA", { timeZone: "Asia/Baghdad" });
 var daysBack = (n) => Array.from({ length: n }, (_, i) => dayOf(Date.now() - i * 864e5)).reverse();
 function memoryStore() {
@@ -1880,7 +2356,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-ZsWstnjMuiP87RxtBzC1sR3lQsD7P/972u9qTxsdxgA=";
+var SCRIPT_HASH = "sha256-xUDMcGdKa7Xm83vOmoRXOXyuUMTShhhGx0xS0f7kIEs=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -1991,7 +2467,7 @@ function closeRoom(room) {
   clearTimeout(room.botTimer);
   rooms.delete(room.code);
 }
-function leaveRoom(token, { forfeit: forfeit6 = true } = {}) {
+function leaveRoom(token, { forfeit: forfeit9 = true } = {}) {
   const p = players.get(token);
   if (!p || !p.roomCode) return;
   const room = rooms.get(p.roomCode);
@@ -2000,7 +2476,7 @@ function leaveRoom(token, { forfeit: forfeit6 = true } = {}) {
   if (!room) return;
   const seat = room.seats.indexOf(token);
   const g = GAMES[room.game];
-  if (room.match && room.match.matchWinner === null && forfeit6 && seat >= 0) {
+  if (room.match && room.match.matchWinner === null && forfeit9 && seat >= 0) {
     if (g.bots && room.seats.some((t, i) => i !== seat && isHuman(t))) {
       room.seats[seat] = BOT;
       broadcastState(room, { kind: "botTakeover", player: seat });
@@ -2319,8 +2795,8 @@ function startServer(port = PORT) {
       if (!msg || typeof msg !== "object" || typeof msg.t !== "string") return send(ws, { t: "error", code: "badMsg" });
       try {
         handle(ws, msg);
-      } catch (err2) {
-        console.error(err2);
+      } catch (err4) {
+        console.error(err4);
         send(ws, { t: "error", code: "server" });
       }
     });
