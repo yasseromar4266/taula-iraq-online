@@ -1978,7 +1978,8 @@ var GAMES = {
     bots: true,
     startPartial: true,
     turnSeat: (m) => m.matchWinner === null ? m.turn : null,
-    botMove: () => ({ a: "roll" })
+    botMove: () => ({ a: "roll" }),
+    botPause: (m) => m.lastRoll ? 230 * Math.max(0, m.lastRoll.land - m.lastRoll.from) + (m.lastRoll.via ? 1500 : 0) : 0
   },
   uno: {
     seats: 4,
@@ -2033,7 +2034,8 @@ var GAMES = {
     bots: true,
     startPartial: true,
     turnSeat: (m) => m.phase === "roll" || m.phase === "move" ? m.turn : null,
-    botMove: (m, seat) => m.phase === "roll" ? { a: "roll" } : { a: "move", token: chooseMove(m, seat, "medium") }
+    botMove: (m, seat) => m.phase === "roll" ? { a: "roll" } : { a: "move", token: chooseMove(m, seat, "medium") },
+    botPause: (m) => m.phase === "roll" ? 900 : 300
   },
   xo: {
     seats: 2,
@@ -2356,7 +2358,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-xUDMcGdKa7Xm83vOmoRXOXyuUMTShhhGx0xS0f7kIEs=";
+var SCRIPT_HASH = "sha256-8yPvVN8fh6wHrhCrtnmxha8i1mbxaBlYn3WgpC4xxqk=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -2364,7 +2366,8 @@ var pageCache = null;
 var PORT = Number(process.env.PORT || 8787);
 var GRACE_MS = Number(process.env.GRACE_MS || 6e4);
 var ROOM_IDLE_MS = 30 * 6e4;
-var BOT_DELAY_MS = Number(process.env.BOT_DELAY_MS || 900);
+var BOT_DELAY_MS = Number(process.env.BOT_DELAY_MS || 1500);
+var botWait = (g, m) => process.env.BOT_DELAY_MS ? BOT_DELAY_MS : BOT_DELAY_MS + Math.random() * 900 + (g.botPause ? g.botPause(m) : 0);
 var MAX_MSG_BYTES = 2048;
 var RATE_PER_SEC = Number(process.env.RATE_PER_SEC || 20);
 var MAX_CONN_PER_IP = Number(process.env.MAX_CONN_PER_IP || 8);
@@ -2425,7 +2428,7 @@ function scheduleBots(room) {
     const msg = g.botMove(room.match, seat);
     const res = msg && g.act(room.match, seat, msg);
     if (res?.ok) for (const anim of res.anims) broadcastState(room, anim);
-  }, BOT_DELAY_MS);
+  }, botWait(g, room.match));
 }
 function createRoom(isPrivate, game) {
   if (rooms.size >= MAX_ROOMS) return null;
