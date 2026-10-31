@@ -2358,7 +2358,7 @@ function createStats({
 var __dirname = dirname(fileURLToPath(import.meta.url));
 var DIST = join(__dirname, "..", "dist");
 var SINGLE_HTML = "index.html";
-var SCRIPT_HASH = "sha256-negtN5hCsD8C5B5zV3uHjByh8db6DvuwObLR+IV5KeY=";
+var SCRIPT_HASH = "sha256-OqVaE5y4reFrRGNt5GxbNpvzzVgbl4M2ReynHcoXyL0=";
 var GA_ID = /^G-[A-Z0-9]{4,15}$/.test(process.env.GA_ID || "") ? process.env.GA_ID : "";
 var GA_INLINE = GA_ID ? `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${GA_ID}');` : "";
 var GA_HASH = GA_ID ? "sha256-" + createHash2("sha256").update(GA_INLINE).digest("base64") : "";
@@ -2678,8 +2678,14 @@ var stats = createStats({
     waiting: Object.values(queues).reduce((n, q) => n + q.length, 0)
   })
 });
+var REDIRECT_TO = /^https:\/\/[a-z0-9.-]+$/i.test((process.env.REDIRECT_TO || "").replace(/\/+$/, "")) ? process.env.REDIRECT_TO.replace(/\/+$/, "") : "";
 var ipOf = (req) => String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
 async function serveStatic(req, res) {
+  if (REDIRECT_TO && req.url !== "/healthz") {
+    const path2 = (req.url || "/").startsWith("/") ? req.url || "/" : "/";
+    res.writeHead(302, { location: REDIRECT_TO + path2, "cache-control": "no-store" });
+    return res.end();
+  }
   securityHeaders(req, res);
   if (req.method === "GET" && (req.url || "").startsWith("/api/music/search")) return musicSearch(req, res, ipOf(req));
   if ((req.url || "").startsWith("/api/") && await stats.route(req, res, ipOf(req))) return;
